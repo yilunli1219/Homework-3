@@ -61,15 +61,13 @@ class EqualWeightPortfolio:
     def calculate_weights(self):
         # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
+        num_assets = len(assets)
+        equal_weight = 1.0 / num_assets
+
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        self.portfolio_weights[assets] = equal_weight
+        self.portfolio_weights[self.exclude] = 0  # Set weight of the excluded asset to 0
 
-        """
-        TODO: Complete Task 1 Below
-        """
-
-        """
-        TODO: Complete Task 1 Above
-        """
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -110,17 +108,18 @@ class RiskParityPortfolio:
     def calculate_weights(self):
         # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
+        num_assets = len(assets)
 
         # Calculate the portfolio weights
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
 
-        """
-        TODO: Complete Task 2 Below
-        """
+        for i in range(self.lookback+1, len(df)):
+            rolling_returns = df_returns[assets].iloc[i - self.lookback:i]
+            cov_matrix = rolling_returns.cov()
+            inv_vol = 1 / np.sqrt(np.diag(cov_matrix))
+            risk_parity_weights = inv_vol / inv_vol.sum()
 
-        """
-        TODO: Complete Task 2 Above
-        """
+            self.portfolio_weights.loc[df.index[i], assets] = risk_parity_weights
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
@@ -169,9 +168,7 @@ class MeanVariancePortfolio:
 
         for i in range(self.lookback + 1, len(df)):
             R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
-            self.portfolio_weights.loc[df.index[i], assets] = self.mv_opt(
-                R_n, self.gamma
-            )
+            self.portfolio_weights.loc[df.index[i], assets] = self.mv_opt(R_n, self.gamma)
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
@@ -186,39 +183,17 @@ class MeanVariancePortfolio:
             env.setParam("DualReductions", 0)
             env.start()
             with gp.Model(env=env, name="portfolio") as model:
-                """
-                TODO: Complete Task 3 Below
-                """
-
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
                 w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
-
-                """
-                TODO: Complete Task 3 Below
-                """
+                port_variance = w @ Sigma @ w
+                port_return = mu @ w
+                model.setObjective(port_return - (gamma / 2) * port_variance, gp.GRB.MAXIMIZE)
+                model.addConstr(w.sum() == 1)
                 model.optimize()
 
-                # Check if the status is INF_OR_UNBD (code 4)
-                if model.status == gp.GRB.INF_OR_UNBD:
-                    print(
-                        "Model status is INF_OR_UNBD. Reoptimizing with DualReductions set to 0."
-                    )
-                elif model.status == gp.GRB.INFEASIBLE:
-                    # Handle infeasible model
-                    print("Model is infeasible.")
-                elif model.status == gp.GRB.INF_OR_UNBD:
-                    # Handle infeasible or unbounded model
-                    print("Model is infeasible or unbounded.")
-
-                if model.status == gp.GRB.OPTIMAL or model.status == gp.GRB.SUBOPTIMAL:
-                    # Extract the solution
-                    solution = []
-                    for i in range(n):
-                        var = model.getVarByName(f"w[{i}]")
-                        # print(f"w {i} = {var.X}")
-                        solution.append(var.X)
+                if model.status == gp.GRB.OPTIMAL:
+                    solution = w.x
+                else:
+                    solution = np.zeros(n)
 
         return solution
 
@@ -242,6 +217,7 @@ class MeanVariancePortfolio:
             self.calculate_portfolio_returns()
 
         return self.portfolio_weights, self.portfolio_returns
+
 
 
 """
